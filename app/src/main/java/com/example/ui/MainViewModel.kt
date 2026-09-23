@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.VoiceNotificationManager
@@ -88,7 +89,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isVisionReadInProgress: StateFlow<Boolean> = _isVisionReadInProgress.asStateFlow()
 
     val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
-        if (!_isSimulatorVisible.value) {
+        if (_isSimulatorVisible.value) return@BitScreenAnalyzer
+
+        if (_isVisionReadInProgress.value) {
+            runAiVisionRead(raw)
+        } else {
             processDetectedNumber(detectedVal, raw)
         }
     }
@@ -110,21 +115,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun requestAiNumberRead() {
         if (_isSimulatorVisible.value || _isVisionReadInProgress.value) return
 
-        val bitmap = bitmapProvider?.invoke()
-        if (bitmap == null) {
+        if (bitmapProvider?.invoke() == null) {
             _statusMessage.value = "No hay una captura de cámara disponible."
             return
         }
 
         _isVisionReadInProgress.value = true
-        _statusMessage.value = "Leyendo número con visión IA..."
+        _statusMessage.value = "Capturando lectura para visión IA..."
         bitScreenAnalyzer.requestSingleRead()
+    }
+
+    private fun runAiVisionRead(localOcrText: String) {
+        val bitmap = bitmapProvider?.invoke()
+
+        if (bitmap == null) {
+            _isVisionReadInProgress.value = false
+            _statusMessage.value = "No hay una captura de cámara disponible."
+            return
+        }
 
         viewModelScope.launch {
             try {
                 val result = visionReadClient.readNumber(
                     bitmap = bitmap,
-                    localOcrText = _rawOcrText.value,
+                    localOcrText = localOcrText,
                     prompt = "Lee únicamente el número principal visible en el indicador central. Si algún dígito o separador no es legible, no lo completes."
                 )
 
@@ -134,35 +148,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             detectedVal = result.number,
                             raw = result.rawText
                         )
-                        _statusMessage.value =
-                            "Lectura IA confirmada: \${result.number} \${_config.value.unit}"
+                        _statusMessage.value = "Lectura IA confirmada: " + result.number + " " + _config.value.unit
                     }
 
                     result.status == "CONFLICT" -> {
                         _currentDetectedNumber.value = null
                         _isMatch.value = false
-                        _statusMessage.value =
-                            "Lectura no segura: existen lecturas visuales en conflicto."
+                        _statusMessage.value = "Lectura no segura: existen lecturas visuales en conflicto."
                     }
 
                     else -> {
                         _currentDetectedNumber.value = null
                         _isMatch.value = false
-                        _statusMessage.value =
-                            "Lectura no legible: no se infirió ningún valor."
+                        _statusMessage.value = "Lectura no legible: no se infirió ningún valor."
                     }
                 }
             } catch (e: Exception) {
                 Log.e("MainViewModel", "AI vision read failed", e)
                 _currentDetectedNumber.value = null
                 _isMatch.value = false
-                _statusMessage.value =
-                    "No se pudo completar la lectura IA: \${e.message ?: "error de conexión"}"
+                _statusMessage.value = "No se pudo completar la lectura IA: " + (e.message ?: "error de conexión")
             } finally {
                 _isVisionReadInProgress.value = false
             }
         }
     }
+
     fun processDetectedNumber(detectedVal: Double?, raw: String) {
         _rawOcrText.value = raw
         if (detectedVal == null) {
