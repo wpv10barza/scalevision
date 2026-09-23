@@ -76,7 +76,18 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.IGNORE }
+val requiresFirebaseConfig = gradle.startParameter.taskNames.any {
+  it.contains("Release", ignoreCase = true)
+}
+
+googleServices {
+  missingGoogleServicesStrategy =
+    if (requiresFirebaseConfig) {
+      MissingGoogleServicesStrategy.ERROR
+    } else {
+      MissingGoogleServicesStrategy.IGNORE
+    }
+}
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
