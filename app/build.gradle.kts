@@ -9,6 +9,10 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+val visionBackendUrl = providers.gradleProperty("visionBackendUrl")
+  .orElse("http://10.0.2.2:3000")
+  .get()
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -19,6 +23,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    buildConfigField("String", "VISION_BACKEND_URL", "\"$visionBackendUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
