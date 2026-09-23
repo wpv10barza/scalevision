@@ -12,7 +12,7 @@ import com.example.data.FirebaseConfigRepository
 import com.example.data.GoogleDriveManager
 import com.example.model.ScaleConfig
 import com.example.vision.BitmapCaptureHelper
-import com.example.vision.BitScreenAnalyzer
+import com.example.vision.NumericVisionClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +37,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val _isMatch = MutableStateFlow(false)
     val isMatch: StateFlow<Boolean> = _isMatch.asStateFlow()
+
+    private val _isReading = MutableStateFlow(false)
+    val isReading: StateFlow<Boolean> = _isReading.asStateFlow()
+
+    private val visionClient = NumericVisionClient()
 
     private val _torchEnabled = MutableStateFlow(false)
     val torchEnabled: StateFlow<Boolean> = _torchEnabled.asStateFlow()
@@ -80,13 +85,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveUser = driveManager.currentUser
     val driveUploadStatus = driveManager.uploadStatus
 
-    // Vision Analyzer
-    val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
-        if (!_isSimulatorVisible.value) {
-            processDetectedNumber(detectedVal, raw)
-        }
-    }
-
     init {
         // Observe real-time config from Firebase Firestore
         viewModelScope.launch {
@@ -97,6 +95,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _isMatch.value = false
                     hasAnnouncedCurrentMatch = false
                 }
+            }
+        }
+    }
+
+    fun readNumberNow() {
+        if (_isSimulatorVisible.value || _isReading.value) return
+
+        val frame = bitmapProvider?.invoke()
+        if (frame == null) {
+            _statusMessage.value = "No se pudo capturar una imagen."
+            return
+        }
+
+        viewModelScope.launch {
+            _isReading.value = true
+            _statusMessage.value = "Leyendo pantalla..."
+
+            try {
+                val result = visionClient.readNumber(
+                    bitmap = frame,
+                    unit = _config.value.unit
+                )
+
+                if (result.status == "ok" && result.value != null) {
+                    _rawOcrText.value = result.numberText
+                    processDetectedNumber(
+                        detectedVal = result.value,
+                        raw = result.numberText
+                    )
+                    _statusMessage.value =
+                        "Lectura válida: \${result.numberText} \${_config.value.unit}"
+                } else {
+                    _currentDetectedNumber.value = null
+                    _isMatch.value = false
+                    hasAnnouncedCurrentMatch = false
+                    _rawOcrText.value = ""
+                    _statusMessage.value =
+                        result.reason.ifBlank { "Pantalla no legible." }
+                }
+            } catch (e: Exception) {
+                _currentDetectedNumber.value = null
+                _isMatch.value = false
+                hasAnnouncedCurrentMatch = false
+                _rawOcrText.value = ""
+                _statusMessage.value =
+                    "Error de visión: \${e.message ?: "sin detalle"}"
+            } finally {
+                _isReading.value = false
             }
         }
     }
