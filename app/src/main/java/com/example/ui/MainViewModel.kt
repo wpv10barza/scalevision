@@ -89,12 +89,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val isVisionReadInProgress: StateFlow<Boolean> = _isVisionReadInProgress.asStateFlow()
 
     val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
-        if (_isSimulatorVisible.value) return@BitScreenAnalyzer
-
-        if (_isVisionReadInProgress.value) {
-            runAiVisionRead(raw)
-        } else {
-            processDetectedNumber(detectedVal, raw)
+        if (!_isSimulatorVisible.value) {
+            if (_isVisionReadInProgress.value) {
+                runAiVisionRead(raw)
+            } else {
+                processDetectedNumber(detectedVal, raw)
+            }
         }
     }
 
@@ -126,6 +126,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun runAiVisionRead(localOcrText: String) {
+        _rawOcrText.value = localOcrText
         val bitmap = bitmapProvider?.invoke()
 
         if (bitmap == null) {
