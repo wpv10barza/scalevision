@@ -13,6 +13,7 @@ import com.example.data.GoogleDriveManager
 import com.example.model.ScaleConfig
 import com.example.vision.BitmapCaptureHelper
 import com.example.vision.BitScreenAnalyzer
+import com.example.vision.VisionReadClient
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,6 +82,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveUploadStatus = driveManager.uploadStatus
 
     // Vision Analyzer
+    private val visionReadClient = VisionReadClient()
+
+    private val _isVisionReadInProgress = MutableStateFlow(false)
+    val isVisionReadInProgress: StateFlow<Boolean> = _isVisionReadInProgress.asStateFlow()
+
     val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
         if (!_isSimulatorVisible.value) {
             processDetectedNumber(detectedVal, raw)
@@ -101,6 +107,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun requestAiNumberRead() {
+        if (_isSimulatorVisible.value || _isVisionReadInProgress.value) return
+
+        val bitmap = bitmapProvider?.invoke()
+        if (bitmap == null) {
+            _statusMessage.value = "No hay una captura de cámara disponible."
+            return
+        }
+
+        _isVisionReadInProgress.value = true
+        _statusMessage.value = "Leyendo número con visión IA..."
+        bitScreenAnalyzer.requestSingleRead()
+
+        viewModelScope.launch {
+            try {
+                val result = visionReadClient.readNumber(
+                    bitmap = bitmap,
+                    localOcrText = _rawOcrText.value,
+                    prompt = "Lee únicamente el número principal visible en el indicador central. Si algún dígito o separador no es legible, no lo completes."
+                )
+
+                when {
+                    result.status == "READ" && result.number != null -> {
+                        processDetectedNumber(
+                            detectedVal = result.number,
+                            raw = result.rawText
+                        )
+                        _statusMessage.value =
+                            "Lectura IA confirmada: \${result.number} \${_config.value.unit}"
+                    }
+
+                    result.status == "CONFLICT" -> {
+                        _currentDetectedNumber.value = null
+                        _isMatch.value = false
+                        _statusMessage.value =
+                            "Lectura no segura: existen lecturas visuales en conflicto."
+                    }
+
+                    else -> {
+                        _currentDetectedNumber.value = null
+                        _isMatch.value = false
+                        _statusMessage.value =
+                            "Lectura no legible: no se infirió ningún valor."
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "AI vision read failed", e)
+                _currentDetectedNumber.value = null
+                _isMatch.value = false
+                _statusMessage.value =
+                    "No se pudo completar la lectura IA: \${e.message ?: "error de conexión"}"
+            } finally {
+                _isVisionReadInProgress.value = false
+            }
+        }
+    }
     fun processDetectedNumber(detectedVal: Double?, raw: String) {
         _rawOcrText.value = raw
         if (detectedVal == null) {
