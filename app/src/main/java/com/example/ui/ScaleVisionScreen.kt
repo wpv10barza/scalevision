@@ -255,7 +255,7 @@ fun ScaleVisionScreen(
                         modifier = Modifier.fillMaxWidth()
                     )
 
-                    // On-demand Gemini numeric read. ML Kit is only used as auxiliary OCR.
+                    // On-demand numeric read through the existing OmniBot vision interface.
                     Button(
                         onClick = { viewModel.requestAiNumberRead() },
                         enabled = !isSimulatorVisible && !isVisionReadInProgress,
@@ -271,9 +271,9 @@ fun ScaleVisionScreen(
                     ) {
                         Text(
                             text = if (isVisionReadInProgress) {
-                                "LEYENDO NÚMERO CON IA..."
+                                "LEYENDO NÚMERO CON VISIÓN..."
                             } else {
-                                "LEER NÚMERO CON IA"
+                                "LEER NÚMERO CON VISIÓN"
                             },
                             color = Color.White,
                             fontWeight = FontWeight.Bold,
