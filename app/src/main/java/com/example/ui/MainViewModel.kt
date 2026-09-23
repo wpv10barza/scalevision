@@ -91,11 +91,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val _isVisionReadInProgress = MutableStateFlow(false)
     val isVisionReadInProgress: StateFlow<Boolean> = _isVisionReadInProgress.asStateFlow()
 
-    val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
-        if (!_isSimulatorVisible.value && detectedVal != null) {
-            // ML Kit is auxiliary only; the enhanced vision endpoint remains
-            // the authority for every new AI-assisted reading.
-            processDetectedNumber(detectedVal, raw)
+    val bitScreenAnalyzer = BitScreenAnalyzer { _, raw ->
+        if (!_isSimulatorVisible.value) {
+            // ML Kit is diagnostic/auxiliary only. It never updates the
+            // authoritative reading state.
+            _rawOcrText.value = raw
         }
     }
 
