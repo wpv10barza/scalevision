@@ -13,12 +13,26 @@ object VisionReadContract {
     private val NUMBER_PATTERN =
         Regex("""^[+-]?\d+(?:\.\d+)?$""")
 
-    fun fromRemoteResponse(response: JSONObject): VisionReadResult {
-        val remoteStatus = response.optString("status").trim().lowercase()
-        val remoteNumber = response.optString("number_text").trim()
-        val rawText = response.optString("raw_text")
-            .ifBlank { remoteNumber.ifBlank { null } }
-        val reason = response.optString("reason").ifBlank { null }
+    fun fromRemoteResponse(response: JSONObject): VisionReadResult =
+        fromRemoteValues(
+            status = response.optString("status"),
+            numberText = response.optString("number_text"),
+            rawText = response.optString("raw_text"),
+            reason = response.optString("reason")
+        )
+
+    fun fromRemoteValues(
+        status: String,
+        numberText: String?,
+        rawText: String?,
+        reason: String?
+    ): VisionReadResult {
+        val remoteStatus = status.trim().lowercase()
+        val remoteNumber = numberText?.trim().orEmpty()
+        val cleanRawText = rawText?.trim()?.ifBlank {
+            remoteNumber.ifBlank { null }
+        }
+        val cleanReason = reason?.trim()?.ifBlank { null }
 
         return when (remoteStatus) {
             "ok", "read" -> {
@@ -31,8 +45,8 @@ object VisionReadContract {
                     VisionReadResult(
                         status = Status.READ,
                         number = remoteNumber,
-                        rawText = rawText,
-                        reason = reason
+                        rawText = cleanRawText,
+                        reason = cleanReason
                     )
                 }
             }
@@ -45,12 +59,12 @@ object VisionReadContract {
             )
 
             "conflict" -> conflict(
-                rawText = rawText,
-                reason = reason ?: "La lectura visual es conflictiva."
+                rawText = cleanRawText,
+                reason = cleanReason ?: "La lectura visual es conflictiva."
             )
 
             else -> conflict(
-                rawText = rawText,
+                rawText = cleanRawText,
                 reason = "Respuesta de visión desconocida."
             )
         }
