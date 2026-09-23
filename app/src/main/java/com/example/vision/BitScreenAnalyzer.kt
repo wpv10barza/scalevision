@@ -11,22 +11,29 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.text.Text
 import com.google.mlkit.vision.text.TextRecognition
 import com.google.mlkit.vision.text.latin.TextRecognizerOptions
-import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
+/**
+ * ML Kit remains available as a lightweight auxiliary reader, but it is
+ * deliberately one-shot. No OCR is executed until requestSingleRead().
+ */
 class BitScreenAnalyzer(
     private val onNumberDetected: (Double?, String) -> Unit
 ) : ImageAnalysis.Analyzer {
 
     private val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    private val requestPending = AtomicBoolean(false)
+    @Volatile
     private var isProcessing = false
-    private var lastFrameTime = 0L
-    private val frameThrottleMs = 120L // ~8-10 FPS for high responsiveness without CPU throttling
+
+    fun requestSingleRead() {
+        requestPending.set(true)
+    }
 
     @OptIn(ExperimentalGetImage::class)
     @SuppressLint("UnsafeOptInUsageError")
     override fun analyze(imageProxy: ImageProxy) {
-        val currentTime = System.currentTimeMillis()
-        if (isProcessing || (currentTime - lastFrameTime < frameThrottleMs)) {
+        if (!requestPending.compareAndSet(true, false) || isProcessing) {
             imageProxy.close()
             return
         }
@@ -34,18 +41,24 @@ class BitScreenAnalyzer(
         val mediaImage = imageProxy.image
         if (mediaImage == null) {
             imageProxy.close()
+            onNumberDetected(null, "")
             return
         }
 
         isProcessing = true
-        lastFrameTime = currentTime
 
-        val rotationDegrees = imageProxy.imageInfo.rotationDegrees
-        val inputImage = InputImage.fromMediaImage(mediaImage, rotationDegrees)
+        val inputImage = InputImage.fromMediaImage(
+            mediaImage,
+            imageProxy.imageInfo.rotationDegrees
+        )
 
         recognizer.process(inputImage)
             .addOnSuccessListener { visionText ->
-                val (detectedNumber, rawText) = extractBitDisplayNumber(visionText, imageProxy.width, imageProxy.height)
+                val (detectedNumber, rawText) = extractBitDisplayNumber(
+                    visionText,
+                    imageProxy.width,
+                    imageProxy.height
+                )
                 onNumberDetected(detectedNumber, rawText)
             }
             .addOnFailureListener { e ->
@@ -58,9 +71,6 @@ class BitScreenAnalyzer(
             }
     }
 
-    /**
-     * Extracts and cleans numbers from 7-segment / bit screens, prioritizing the center ROI.
-     */
     private fun extractBitDisplayNumber(
         visionText: Text,
         imageWidth: Int,
@@ -80,13 +90,12 @@ class BitScreenAnalyzer(
                 val parsed = parseCandidateValues(cleaned)
 
                 for (value in parsed) {
-                    // Calculate distance to image center
                     val box = line.boundingBox ?: Rect(0, 0, imageWidth, imageHeight)
                     val centerX = box.centerX()
                     val centerY = box.centerY()
                     val distFromCenter = Math.hypot(
-                        (centerX - imageWidth / 2.0),
-                        (centerY - imageHeight / 2.0)
+                        centerX - imageWidth / 2.0,
+                        centerY - imageHeight / 2.0
                     )
                     val boxArea = box.width() * box.height()
 
@@ -104,15 +113,14 @@ class BitScreenAnalyzer(
         }
 
         if (candidates.isEmpty()) {
-            // Fallback: check full text
             val fullCleaned = normalizeBitDisplayCharacters(visionText.text)
             val fallback = parseCandidateValues(fullCleaned).firstOrNull()
-            return Pair(fallback, visionText.text.take(30))
+            return Pair(fallback, visionText.text.take(120))
         }
 
-        // Score candidates: favor larger font area and proximity to center
-        val best = candidates.minByOrNull { it.centerDistance / (it.area.coerceAtLeast(1) + 100) }
-            ?: candidates.first()
+        val best = candidates.minByOrNull {
+            it.centerDistance / (it.area.coerceAtLeast(1) + 100)
+        } ?: candidates.first()
 
         return Pair(best.value, best.normalized)
     }
@@ -126,20 +134,21 @@ class BitScreenAnalyzer(
     )
 
     companion object {
-        /**
-         * Normalizes typical OCR misreadings of 7-segment / bit displays.
-         */
         fun normalizeBitDisplayCharacters(input: String): String {
             var s = input.trim()
 
-            // Remove scale status labels: NET, TARE, ZERO, HOLD, STABLE, MAX, MIN
-            s = s.replace(Regex("""(?i)\b(net|tare|tara|zero|cero|hold|stable|est|max|min|gross|bruto|pcs)\b"""), " ")
+            s = s.replace(
+                Regex("""(?i)\b(net|tare|tara|zero|cero|hold|stable|est|max|min|gross|bruto|pcs)\b"""),
+                " "
+            )
 
-            // Remove units like kg, g, lb, oz, lb/oz
-            s = s.replace(Regex("""(?i)\b(kg|kilo|kilos|gr|g|lbs|lb|oz)\b"""), " ")
+            s = s.replace(
+                Regex("""(?i)\b(kg|kilo|kilos|gr|g|lbs|lb|oz)\b"""),
+                " "
+            )
 
-            // Replace common 7-segment segment confusions when isolated or adjacent to numbers
             val sb = StringBuilder()
+
             for (i in s.indices) {
                 val c = s[i]
                 val prevIsDigit = i > 0 && s[i - 1].isDigit()
@@ -153,32 +162,30 @@ class BitScreenAnalyzer(
                     (c == 'S' || c == 's') && isNearbyDigit -> '5'
                     (c == 'B') && isNearbyDigit -> '8'
                     (c == 'q' || c == 'g') && isNearbyDigit -> '9'
-                    c == ',' -> '.' // Normalize decimal separator
-                    c == ':' && isNearbyDigit -> '.' // Bit screens sometimes display colon as decimal
+                    c == ',' -> '.'
+                    c == ':' && isNearbyDigit -> '.'
                     else -> c
                 }
+
                 sb.append(normalizedChar)
             }
 
             return sb.toString()
         }
 
-        /**
-         * Parses valid numerical candidates from normalized string.
-         * Looks for numbers like 1.5, 2.0, 0.500, 15, 3.45.
-         */
         fun parseCandidateValues(text: String): List<Double> {
             val list = mutableListOf<Double>()
             val regex = Regex("""(?:\b|(?<=[^\d.]))(\d{1,4}(?:\.\d{1,3})?)(?:\b|(?=[^\d.]))""")
-            val matches = regex.findAll(text)
 
-            for (match in matches) {
+            for (match in regex.findAll(text)) {
                 val token = match.groupValues[1]
                 val d = token.toDoubleOrNull()
+
                 if (d != null && d >= 0.0 && d < 9999.0) {
                     list.add(d)
                 }
             }
+
             return list
         }
     }
