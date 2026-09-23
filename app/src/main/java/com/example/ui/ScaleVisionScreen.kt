@@ -126,6 +126,7 @@ fun ScaleVisionScreen(
     val rmsLevel by viewModel.voiceRmsLevel.collectAsStateWithLifecycle()
     val lastVoiceTranscript by viewModel.lastVoiceTranscript.collectAsStateWithLifecycle()
     val statusMsg by viewModel.statusMessage.collectAsStateWithLifecycle()
+    val isVisionReadInProgress by viewModel.isVisionReadInProgress.collectAsStateWithLifecycle()
 
     val driveUser by viewModel.driveUser.collectAsStateWithLifecycle()
     val driveUploadStatus by viewModel.driveUploadStatus.collectAsStateWithLifecycle()
@@ -253,6 +254,32 @@ fun ScaleVisionScreen(
                         isMatch = isMatch,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    // On-demand Gemini numeric read. ML Kit is only used as auxiliary OCR.
+                    Button(
+                        onClick = { viewModel.requestAiNumberRead() },
+                        enabled = !isSimulatorVisible && !isVisionReadInProgress,
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF0284C7),
+                            disabledContainerColor = Color(0x552C3E50)
+                        ),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(46.dp)
+                            .testTag("vision_read_number_button")
+                    ) {
+                        Text(
+                            text = if (isVisionReadInProgress) {
+                                "LEYENDO NÚMERO CON IA..."
+                            } else {
+                                "LEER NÚMERO CON IA"
+                            },
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                    }
 
                     // Reset action button if target reached and held
                     if (isMatch) {
