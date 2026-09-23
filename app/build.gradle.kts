@@ -10,7 +10,7 @@ plugins {
 }
 
 val visionBackendUrl = providers.gradleProperty("visionBackendUrl")
-  .orElse("http://10.0.2.2:3000")
+  .orElse(System.getenv("VISION_BACKEND_URL") ?: "")
   .get()
 
 android {
