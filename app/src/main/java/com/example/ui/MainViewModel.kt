@@ -3,6 +3,7 @@ package com.example.ui
 import android.app.Application
 import android.content.Intent
 import android.graphics.Bitmap
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.audio.VoiceNotificationManager
@@ -13,6 +14,9 @@ import com.example.data.GoogleDriveManager
 import com.example.model.ScaleConfig
 import com.example.vision.BitmapCaptureHelper
 import com.example.vision.BitScreenAnalyzer
+import com.example.vision.VisionReadClient
+import com.example.vision.VisionReadContract
+import com.example.vision.VisionReadGate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -81,9 +85,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val driveUploadStatus = driveManager.uploadStatus
 
     // Vision Analyzer
-    val bitScreenAnalyzer = BitScreenAnalyzer { detectedVal, raw ->
+    private val visionReadClient = VisionReadClient()
+    private val visionReadGate = VisionReadGate()
+
+    private val _isVisionReadInProgress = MutableStateFlow(false)
+    val isVisionReadInProgress: StateFlow<Boolean> = _isVisionReadInProgress.asStateFlow()
+
+    val bitScreenAnalyzer = BitScreenAnalyzer { _, raw ->
         if (!_isSimulatorVisible.value) {
-            processDetectedNumber(detectedVal, raw)
+            // ML Kit is diagnostic/auxiliary only. It never updates the
+            // authoritative reading state.
+            _rawOcrText.value = raw
         }
     }
 
@@ -97,6 +109,89 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     _isMatch.value = false
                     hasAnnouncedCurrentMatch = false
                 }
+            }
+        }
+    }
+
+    fun requestAiNumberRead() {
+        if (!VisionReadPolicy.canStart(
+                simulatorVisible = _isSimulatorVisible.value,
+                readInProgress = _isVisionReadInProgress.value
+            ) || !visionReadGate.tryAcquire()
+        ) return
+
+        val frame = bitmapProvider?.invoke()
+        if (frame == null) {
+            visionReadGate.release()
+            _statusMessage.value = "No hay una captura de cámara disponible."
+            return
+        }
+
+        val capturedBitmap = runCatching {
+            frame.copy(Bitmap.Config.ARGB_8888, false)
+        }.getOrElse {
+            visionReadGate.release()
+            _statusMessage.value = "No se pudo capturar un frame válido."
+            return
+        }
+
+        _isVisionReadInProgress.value = true
+        _statusMessage.value = "Capturando lectura para visión OmniBot..."
+
+        viewModelScope.launch {
+            try {
+                val result = visionReadClient.readNumber(
+                    bitmap = capturedBitmap,
+                    unit = _config.value.unit
+                )
+
+                when (result.status) {
+                    VisionReadContract.Status.READ -> {
+                        val numberText = result.number
+                        val detectedValue = numberText?.toDoubleOrNull()
+
+                        if (detectedValue == null) {
+                            _isMatch.value = false
+                            hasAnnouncedCurrentMatch = false
+                            _statusMessage.value =
+                                "Lectura inválida: no se actualizó el valor."
+                            return@launch
+                        }
+
+                        processDetectedNumber(
+                            detectedVal = detectedValue,
+                            raw = result.rawText ?: numberText
+                        )
+                        _statusMessage.value =
+                            "Lectura de visión confirmada: $numberText ${_config.value.unit}"
+                    }
+
+                    VisionReadContract.Status.NOT_LEGIBLE -> {
+                        _isMatch.value = false
+                        hasAnnouncedCurrentMatch = false
+                        _rawOcrText.value = result.rawText.orEmpty()
+                        _statusMessage.value =
+                            "Lectura no legible: no se actualizó el valor."
+                    }
+
+                    VisionReadContract.Status.CONFLICT -> {
+                        _isMatch.value = false
+                        hasAnnouncedCurrentMatch = false
+                        _rawOcrText.value = result.rawText.orEmpty()
+                        _statusMessage.value =
+                            "Lectura conflictiva: no se actualizó el valor."
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("MainViewModel", "OmniBot vision read failed", e)
+                _isMatch.value = false
+                hasAnnouncedCurrentMatch = false
+                _statusMessage.value =
+                    "No se pudo completar la lectura de visión: ${e.message ?: "error de conexión"}"
+            } finally {
+                capturedBitmap.recycle()
+                _isVisionReadInProgress.value = false
+                visionReadGate.release()
             }
         }
     }

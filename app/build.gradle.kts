@@ -9,6 +9,10 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
+val visionBackendUrl = providers.gradleProperty("visionBackendUrl")
+  .orElse(System.getenv("VISION_BACKEND_URL") ?: "")
+  .get()
+
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -19,6 +23,7 @@ android {
     targetSdk = 36
     versionCode = 1
     versionName = "1.0"
+    buildConfigField("String", "VISION_BACKEND_URL", "\"$visionBackendUrl\"")
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -71,7 +76,18 @@ secrets {
   ignoreList.add("FIREBASE_APPCHECK_DEBUG_TOKEN")
 }
 
-googleServices { missingGoogleServicesStrategy = MissingGoogleServicesStrategy.WARN }
+val requiresFirebaseConfig = gradle.startParameter.taskNames.any {
+  it.contains("Release", ignoreCase = true)
+}
+
+googleServices {
+  missingGoogleServicesStrategy =
+    if (requiresFirebaseConfig) {
+      MissingGoogleServicesStrategy.ERROR
+    } else {
+      MissingGoogleServicesStrategy.IGNORE
+    }
+}
 
 // Some unused dependencies are commented out below instead of being removed.
 // This makes it easy to add them back in the future if needed.
