@@ -118,6 +118,7 @@ fun ScaleVisionScreen(
     val config by viewModel.config.collectAsStateWithLifecycle()
     val currentNumber by viewModel.currentDetectedNumber.collectAsStateWithLifecycle()
     val isMatch by viewModel.isMatch.collectAsStateWithLifecycle()
+    val isReading by viewModel.isReading.collectAsStateWithLifecycle()
     val torchEnabled by viewModel.torchEnabled.collectAsStateWithLifecycle()
     val zoomRatio by viewModel.zoomRatio.collectAsStateWithLifecycle()
     val isSimulatorVisible by viewModel.isSimulatorVisible.collectAsStateWithLifecycle()
@@ -153,7 +154,6 @@ fun ScaleVisionScreen(
                     modifier = Modifier.fillMaxSize(),
                     torchEnabled = torchEnabled,
                     zoomRatio = zoomRatio,
-                    analyzer = viewModel.bitScreenAnalyzer,
                     onBitmapProviderReady = { provider ->
                         viewModel.bitmapProvider = provider
                     }
@@ -243,6 +243,23 @@ fun ScaleVisionScreen(
                             isMatch = isMatch,
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        Button(
+                            onClick = { viewModel.readNumberNow() },
+                            enabled = !isReading,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("read_number_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF0284C7)
+                            )
+                        ) {
+                            Text(
+                                text = if (isReading) "LEYENDO…" else "LEER NÚMERO",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
 
                     // Main 7-Segment / Bit Display Readout
