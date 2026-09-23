@@ -38,7 +38,7 @@ object VisionReadContract {
             "ok", "read" -> {
                 if (!NUMBER_PATTERN.matches(remoteNumber)) {
                     conflict(
-                        rawText = rawText,
+                        rawText = cleanRawText,
                         reason = "La API declaró una lectura, pero number_text no contiene un número inequívoco."
                     )
                 } else {
@@ -54,8 +54,8 @@ object VisionReadContract {
             "not_readable", "not_legible" -> VisionReadResult(
                 status = Status.NOT_LEGIBLE,
                 number = null,
-                rawText = rawText,
-                reason = reason ?: "La lectura no es legible."
+                rawText = cleanRawText,
+                reason = cleanReason ?: "La lectura no es legible."
             )
 
             "conflict" -> conflict(
