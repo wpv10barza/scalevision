@@ -24,7 +24,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import java.util.concurrent.Executors
 
 @Composable
 fun CameraPreviewView(
@@ -39,7 +38,6 @@ fun CameraPreviewView(
 
     var camera by remember { mutableStateOf<Camera?>(null) }
     var previewViewInstance by remember { mutableStateOf<PreviewView?>(null) }
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
     LaunchedEffect(torchEnabled, camera) {
         try {
@@ -51,12 +49,6 @@ fun CameraPreviewView(
         try {
             camera?.cameraControl?.setLinearZoom(zoomRatio.coerceIn(0f, 1f))
         } catch (_: Exception) {}
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            cameraExecutor.shutdown()
-        }
     }
 
     AndroidView(
