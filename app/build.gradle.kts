@@ -56,6 +56,17 @@ android {
     compose = true
     buildConfig = true
   }
+
+  val visionApiBaseUrl =
+    providers.gradleProperty("VISION_API_BASE_URL")
+      .orElse("http://10.0.2.2:3000")
+      .get()
+
+  buildConfigField(
+    "String",
+    "VISION_API_BASE_URL",
+    "\"$visionApiBaseUrl\""
+  )
   testOptions { unitTests { isIncludeAndroidResources = true } }
   dependenciesInfo {
     includeInApk = false
@@ -102,7 +113,6 @@ dependencies {
   // implementation(libs.converter.moshi)
   // implementation(libs.firebase.ai)
   implementation(libs.firebase.firestore)
-  implementation(libs.mlkit.text.recognition)
   implementation(libs.play.services.auth)
 
   // Uncomment ALL FOUR of the following dependencies together to use Firebase Auth and Google
