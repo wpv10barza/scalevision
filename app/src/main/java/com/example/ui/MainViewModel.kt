@@ -114,7 +114,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun requestAiNumberRead() {
-        if (_isSimulatorVisible.value || !visionReadGate.tryAcquire()) return
+        if (!VisionReadPolicy.canStart(
+                simulatorVisible = _isSimulatorVisible.value,
+                readInProgress = _isVisionReadInProgress.value
+            ) || !visionReadGate.tryAcquire()
+        ) return
 
         val frame = bitmapProvider?.invoke()
         if (frame == null) {
