@@ -1,6 +1,7 @@
 package com.example.vision
 
 import android.graphics.Bitmap
+import android.net.Uri
 import android.util.Base64
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -12,13 +13,6 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
-data class VisionReadResult(
-    val status: String,
-    val number: Double?,
-    val rawText: String,
-    val reason: String
-)
-
 class VisionReadClient(
     private val backendUrl: String = BuildConfig.VISION_BACKEND_URL,
     private val httpClient: OkHttpClient = OkHttpClient.Builder()
@@ -27,47 +21,28 @@ class VisionReadClient(
         .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 ) {
+
     suspend fun readNumber(
         bitmap: Bitmap,
-        localOcrText: String,
-        prompt: String = "Lee el valor numérico principal visible en la pantalla o indicador."
+        unit: String
     ): VisionReadResult = withContext(Dispatchers.IO) {
+        val base = validateBackendUrl(backendUrl).trimEnd('/')
         val imageBytes = bitmapToVisionJpeg(bitmap)
-        val base = backendUrl.trimEnd('/')
 
-        val capturePayload = JSONObject()
+        val payload = JSONObject()
             .put(
                 "image_base64",
                 Base64.encodeToString(imageBytes, Base64.NO_WRAP)
             )
             .put("mime_type", "image/jpeg")
-            .put("local_ocr_text", localOcrText.take(500))
+            .put("unit", unit)
 
-        val captureResponse = postJson(
-            "${base}/api/vision/captures",
-            capturePayload
+        val response = postJson(
+            "$base/api/vision/read-number",
+            payload
         )
 
-        val captureId = captureResponse.getString("capture_id")
-
-        val agentPayload = JSONObject()
-            .put("capture_id", captureId)
-            .put("prompt", prompt)
-
-        val result = postJson("${base}/api/vision/agent", agentPayload)
-        val tool = result.optJSONObject("tool_result")
-            ?: throw IllegalStateException("El agente no devolvió tool_result.")
-
-        VisionReadResult(
-            status = tool.optString("status", "NOT_LEGIBLE"),
-            number = if (tool.isNull("number")) {
-                null
-            } else {
-                tool.optString("number").toDoubleOrNull()
-            },
-            rawText = tool.optString("raw_text", ""),
-            reason = tool.optString("reason", "")
-        )
+        VisionReadContract.fromRemoteResponse(response)
     }
 
     private fun postJson(url: String, payload: JSONObject): JSONObject {
@@ -83,13 +58,19 @@ class VisionReadClient(
             val text = response.body?.string().orEmpty()
 
             if (!response.isSuccessful) {
-                val message = runCatching {
-                    JSONObject(text).optString("error").ifBlank { text }
-                }.getOrDefault(text)
-
                 throw IllegalStateException(
-                    "Vision backend ${response.code}: $message"
+                    "Vision API HTTP ${response.code}: " +
+                        runCatching {
+                            val json = JSONObject(text)
+                            json.optString("reason")
+                                .ifBlank { json.optString("error") }
+                                .ifBlank { text }
+                        }.getOrDefault(text)
                 )
+            }
+
+            if (text.isBlank()) {
+                throw IllegalStateException("La API de visión devolvió una respuesta vacía.")
             }
 
             return JSONObject(text)
@@ -97,7 +78,7 @@ class VisionReadClient(
     }
 
     private fun bitmapToVisionJpeg(bitmap: Bitmap): ByteArray {
-        val maxDimension = 1280
+        val maxDimension = 1536
         val scale = minOf(
             1f,
             maxDimension.toFloat() / bitmap.width.toFloat(),
@@ -116,9 +97,37 @@ class VisionReadClient(
         }
 
         return try {
-            BitmapCaptureHelper.bitmapToJpegBytes(scaled, quality = 82)
+            BitmapCaptureHelper.bitmapToJpegBytes(scaled, quality = 90)
         } finally {
-            if (scaled !== bitmap) scaled.recycle()
+            if (scaled !== bitmap) {
+                scaled.recycle()
+            }
         }
+    }
+
+    private fun validateBackendUrl(rawUrl: String): String {
+        val normalized = rawUrl.trim()
+
+        if (normalized.isBlank()) {
+            throw IllegalStateException(
+                "VISION_BACKEND_URL no está configurada."
+            )
+        }
+
+        val scheme = Uri.parse(normalized).scheme?.lowercase()
+
+        if (!BuildConfig.DEBUG && scheme != "https") {
+            throw IllegalStateException(
+                "En producción la API de visión debe utilizar HTTPS."
+            )
+        }
+
+        if (scheme != "http" && scheme != "https") {
+            throw IllegalStateException(
+                "VISION_BACKEND_URL debe usar http:// o https://."
+            )
+        }
+
+        return normalized
     }
 }
