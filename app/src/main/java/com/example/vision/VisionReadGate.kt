@@ -15,3 +15,9 @@ class VisionReadGate {
 
     fun isActive(): Boolean = active.get()
 }
+
+object VisionReadPolicy {
+
+    fun canStart(simulatorVisible: Boolean, readInProgress: Boolean): Boolean =
+        !simulatorVisible && !readInProgress
+}
