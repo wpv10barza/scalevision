@@ -5,16 +5,15 @@ import android.view.ViewGroup
 import androidx.camera.core.Camera
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.FocusMeteringAction
-import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
+import androidx.camera.core.ProcessCameraProvider
 import androidx.camera.core.SurfaceOrientedMeteringPointFactory
-import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,7 +31,6 @@ fun CameraPreviewView(
     modifier: Modifier = Modifier,
     torchEnabled: Boolean = false,
     zoomRatio: Float = 0f,
-    analyzer: ImageAnalysis.Analyzer,
     onBitmapProviderReady: ((() -> Bitmap?)) -> Unit = {},
     onCameraReady: (Boolean) -> Unit = {}
 ) {
@@ -40,8 +38,8 @@ fun CameraPreviewView(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     var camera by remember { mutableStateOf<Camera?>(null) }
-    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
     var previewViewInstance by remember { mutableStateOf<PreviewView?>(null) }
+    val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
     LaunchedEffect(torchEnabled, camera) {
         try {
@@ -77,16 +75,9 @@ fun CameraPreviewView(
                     try {
                         val cameraProvider = cameraProviderFuture.get()
 
-                        val preview = Preview.Builder().build().also {
-                            it.surfaceProvider = surfaceProvider
-                        }
-
-                        val imageAnalysis = ImageAnalysis.Builder()
-                            .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        val preview = Preview.Builder()
                             .build()
-                            .also {
-                                it.setAnalyzer(cameraExecutor, analyzer)
-                            }
+                            .also { it.surfaceProvider = surfaceProvider }
 
                         val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
 
@@ -94,8 +85,7 @@ fun CameraPreviewView(
                         camera = cameraProvider.bindToLifecycle(
                             lifecycleOwner,
                             cameraSelector,
-                            preview,
-                            imageAnalysis
+                            preview
                         )
                         onCameraReady(true)
                     } catch (e: Exception) {
