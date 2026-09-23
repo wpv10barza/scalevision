@@ -1,0 +1,6 @@
+{
+  "name": "ScaleVision",
+  "description": "Sistema de visión con cámara para lectura de pantallas numéricas y balanzas digitales con comandos de voz y Firebase",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
